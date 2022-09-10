@@ -40,6 +40,18 @@
           >
             <i class="esri-icon-layers"></i>
           </div>
+          <div
+            id="btnTuyenDayContainer"
+            class="w-[25px] h-[25px] bg-violet-600 text-white p-[6px] rounded cursor-pointer hover:bg-violet-800 flex items-center justify-center"
+          >
+            <i class="esri-icon-table"></i>
+          </div>
+          <div
+            id="btnBaiToan2"
+            class="w-[25px] h-[25px] bg-violet-600 text-white p-[6px] rounded cursor-pointer hover:bg-violet-800 flex items-center justify-center"
+          >
+            <i class="esri-icon-line-of-sight"></i>
+          </div>
         </div>
         <div id="viewDiv" class="flex-1 relative">
           <div id="coordinateWidget"></div>
@@ -47,6 +59,41 @@
             id="layerListContainer"
             class="hidden absolute right-4 top-4 z-[99]"
           ></div>
+          <div
+            id="tuyenDayContainer"
+            class="hidden absolute right-4 top-4 z-[99] w-[400px] h-[600px] bg-white px-4 py-2 overflow-auto"
+          >
+            <div class="font-bold text-lg text-slate-800 text-center">
+              Danh sách tuyến dây
+            </div>
+            <ul id="ulDanhSachTuyenDay"></ul>
+          </div>
+
+          <div
+            id="baiToan2Container"
+            class="hidden absolute right-4 top-4 z-[99] w-[400px] bg-white px-4 py-2 overflow-auto flex flex-col items-center gap-4"
+          >
+            <input
+              id="iptBaiToan2KcTD"
+              class="w-full bg-gray-100 rounded p-2 border focus:outline-none focus:border-blue-500"
+              placeholder="Nhập khoảng cách so với tim đường"
+              type="number"
+              value="5"
+            />
+            <input
+              id="iptBaiToan2KcCot"
+              class="w-full bg-gray-100 rounded p-2 border focus:outline-none focus:border-blue-500"
+              placeholder="Nhập khoảng cách giữa 2 cột"
+              type="number"
+              value="3"
+            />
+            <button
+              id="btnBaiToan2VeKhuVuc"
+              class="px-2 py-1 bg-purple-600 hover:bg-purple-800 shadow rounded text-white"
+            >
+              Vẽ khu vực
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -66,6 +113,10 @@
         "esri/layers/MapImageLayer",
         "esri/Basemap",
         "esri/widgets/FeatureForm",
+        "esri/widgets/Sketch/SketchViewModel",
+        "esri/layers/GraphicsLayer",
+        "esri/rest/query",
+        "esri/geometry/geometryEngine",
       ], function (
         esriConfig,
         Map,
@@ -75,7 +126,11 @@
         FeatureLayer,
         MapImageLayer,
         Basemap,
-        FeatureForm
+        FeatureForm,
+        SketchViewModel,
+        GraphicsLayer,
+        query,
+        geometryEngine
       ) {
         const map = new Map({
           basemap: new Basemap({
@@ -340,6 +395,174 @@
               };
               graphic.layer.applyEdits(edits).then((editsResult) => {});
             });
+          }
+        });
+
+        duongDayLayer.labelingInfo = [
+          {
+            symbol: {
+              type: "text",
+              color: "#34495e",
+              haloColor: "white",
+              haloSize: 1,
+              font: {
+                size: 12,
+              },
+            },
+            labelExpressionInfo: {
+              expression: "$feature.TenDZ ",
+            },
+            maxScale: 0,
+          },
+        ];
+
+        const tuyenDayContainer = $("#tuyenDayContainer"),
+          btnTuyenDayContainer = $("#btnTuyenDayContainer"),
+          ulDanhSachTuyenDay = $("#ulDanhSachTuyenDay");
+        btnTuyenDayContainer.click(() => {
+          tuyenDayContainer.toggleClass("hidden");
+        });
+
+        duongDayLayer
+          .queryFeatures({
+            outFields: ["TenDZ", "ID", "OBJECTID", "MaXuatTuyen"],
+            returnGeometry: false,
+            where: "1=1",
+          })
+          .then(({ features }) => {
+            features.forEach((feature) => {
+              const li = $("<li/>");
+              li.addClass(
+                "py-1 px-2 hover:bg-blue-600 hover:text-white hover:shadow rounded"
+              );
+              const { TenDZ, ID, OBJECTID } = feature.attributes;
+              li.text(`${ID}, ${TenDZ}`);
+
+              li.click(() => {
+                duongDayLayer
+                  .queryFeatures({
+                    outFields: ["MaXuatTuyen"],
+                    objectIds: [OBJECTID], // hoặc where:`OBJECTID = ${OBJECTID}`,
+                    returnGeometry: true,
+                    outSpatialReference: view.spatialReference,
+                  })
+                  .then((response) => {
+                    if (response.features.length) {
+                      const feature = response.features[0];
+                      view.goTo(feature);
+                      const { MaXuatTuyen } = feature.attributes;
+                      // tramBienApLayer.definitionExpression = `MaXuatTuyen='${MaXuatTuyen}'`;
+                      view.whenLayerView(tramBienApLayer).then((layerView) => {
+                        layerView.featureEffect = {
+                          filter: {
+                            where: `MaXuatTuyen='${MaXuatTuyen}'`,
+                          },
+                          excludedEffect: "grayscale(100%) opacity(30%)",
+                        };
+                      });
+                    }
+                  });
+              });
+
+              ulDanhSachTuyenDay.append(li);
+            });
+          });
+
+        const btnBaiToan2 = $("#btnBaiToan2"),
+          baiToan2Container = $("#baiToan2Container"),
+          btnBaiToan2VeKhuVuc = $("#btnBaiToan2VeKhuVuc"),
+          iptBaiToan2KcTD = $("#iptBaiToan2KcTD"),
+          iptBaiToan2KcCot = $("#iptBaiToan2KcCot");
+        btnBaiToan2.click(() => {
+          baiToan2Container.toggleClass("hidden");
+        });
+        const svm = new SketchViewModel({
+          view,
+          layer: new GraphicsLayer({ listMode: "hidden" }),
+        });
+        const timDuong = btnBaiToan2VeKhuVuc.click(() => {
+          if (iptBaiToan2KcCot.val() && iptBaiToan2KcTD.val()) {
+            svm.create("polygon");
+          }
+        });
+        svm.on("create", (e) => {
+          if (e.state === "complete") {
+            const graphic = e.graphic;
+            view.graphics.add(graphic);
+            query
+              .executeQueryJSON(
+                "https://biwase.info/server/rest/services/GISPCDANANG/BanDoNen_DaNang/MapServer/13",
+                {
+                  geometry: graphic.geometry,
+                  returnGeometry: true,
+                  outSpatialReference: view.spatialReference,
+                  num: 1,
+                }
+              )
+              .then((response) => {
+                if (response.features.length) {
+                  const geometry1 = response.features[0].geometry,
+                    geometry2 = graphic.geometry;
+                  const outIntersect = geometryEngine.intersect(
+                    geometry1,
+                    geometry2
+                  );
+                  view.graphics.add({
+                    geometry: outIntersect,
+                    symbol: {
+                      type: "simple-line",
+                      color: "green",
+                    },
+                  });
+                  const kcTimDuong = +iptBaiToan2KcTD.val();
+                  const offsetGeom = geometryEngine.offset(
+                    outIntersect,
+                    kcTimDuong,
+                    "meters"
+                  );
+                  view.graphics.add({
+                    geometry: offsetGeom,
+                    symbol: {
+                      type: "simple-line",
+                      color: "red",
+                    },
+                  });
+
+                  const viTriDiemDauTien = offsetGeom.getPoint(0, 0);
+                  const doDaiTimDuong = geometryEngine.geodesicLength(
+                    offsetGeom,
+                    "meters"
+                  );
+
+                  const banKinhGoc = +iptBaiToan2KcCot.val();
+                  let banKinh = banKinhGoc;
+                  let i = 1;
+                  const viTriCotDiens = [];
+                  do {
+                    const vongTronKhoangCach = geometryEngine.buffer(
+                      viTriDiemDauTien,
+                      banKinh,
+                      "meters"
+                    );
+                    const giaoDiem = geometryEngine.intersect(
+                      vongTronKhoangCach,
+                      offsetGeom
+                    );
+                    const viTriCotDien = giaoDiem.getPoint(
+                      0,
+                      giaoDiem.paths[0].length - 1
+                    );
+                    viTriCotDiens.push(viTriCotDien);
+                    view.graphics.add({
+                      geometry: viTriCotDien,
+                      symbol: {
+                        type: "simple-marker",
+                      },
+                    });
+                    i++;
+                  } while ((banKinh = banKinhGoc * i) < doDaiTimDuong);
+                }
+              });
           }
         });
       });
